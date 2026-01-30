@@ -1,26 +1,39 @@
-#!/system/bin/sh
-# Minimal Mint + XFCE + TigerVNC installer for Android root
+#!/bin/bash
 set -e
-CHROOT=/data/local/chroot/mint
-TARBALL=/data/local/tmp/ubuntu-base-arm64.tar.gz
-URL=https://cdimage.ubuntu.com/ubuntu-base/releases/22.04/release/ubuntu-base-22.04.5-base-arm64.tar.gz
-USER=mint
-PASS=mint
-VNC_DISP=:1
-mkdir -p $CHROOT /data/local/tmp
-[ ! -f $TARBALL ] && wget -O $TARBALL $URL
-[ ! -f $CHROOT/bin/bash ] && tar -xzf $TARBALL -C $CHROOT && mkdir -p $CHROOT/{dev,proc,sys,run,tmp} && chmod 1777 $CHROOT/tmp
-cp /etc/resolv.conf $CHROOT/etc/resolv.conf
-mount --bind /dev $CHROOT/dev || true
-mount --bind /dev/pts $CHROOT/dev/pts || true
-mount -t proc proc $CHROOT/proc || true
-mount -t sysfs sys $CHROOT/sys || true
-run() { chroot $CHROOT /bin/bash -c "$*"; }
-echo "deb http://archive.ubuntu.com/ubuntu/ jammy main universe multiverse" > $CHROOT/etc/apt/sources.list
-run "apt-get update -y"
-run "DEBIAN_FRONTEND=noninteractive apt-get install -y sudo dbus-x11 x11-xserver-utils xterm xinit xfce4 xfce4-goodies tigervnc-standalone-server"
-run "id -u $USER || (useradd -m -s /bin/bash $USER && echo '$USER:$PASS' | chpasswd && adduser $USER sudo)"
-run "mkdir -p /home/$USER/.vnc && echo '#!/bin/sh\nunset SESSION_MANAGER\nunset DBUS_SESSION_BUS_ADDRESS\nexec dbus-run-session startxfce4' > /home/$USER/.vnc/xstartup && chmod +x /home/$USER/.vnc/xstartup && chown -R $USER:$USER /home/$USER/.vnc"
-echo -e "#!/system/bin/sh\nmount --bind /dev $CHROOT/dev\nmount --bind /dev/pts $CHROOT/dev/pts\nmount -t proc proc $CHROOT/proc\nmount -t sysfs sys $CHROOT/sys\nchroot $CHROOT /home/$USER/.vnc/xstartup" > /data/local/chroot/start-xfce.sh
-chmod +x /data/local/chroot/start-xfce.sh
-echo "Installation done. Start with: sh /data/local/chroot/start-xfce.sh, connect via VNC on display $VNC_DISP, default user/pass: $USER/$PASS"
+
+echo "Обновляем пакеты Kali..."
+apt update -y
+apt upgrade -y
+
+echo "Устанавливаем минимальный Xfce и необходимые инструменты..."
+apt install -y xfce4 xfce4-terminal xvfb x11vnc wget unzip
+
+echo "Скачиваем noVNC..."
+wget -q https://github.com/novnc/noVNC/archive/refs/heads/master.zip -O /tmp/novnc.zip
+unzip -q /tmp/novnc.zip -d /opt/
+rm /tmp/novnc.zip
+
+echo "Создаем скрипт запуска виртуального рабочего стола..."
+cat <<'EOF' > /usr/local/bin/start_vnc.sh
+#!/bin/bash
+# Запускаем виртуальный дисплей
+Xvfb :1 -screen 0 1024x768x16 &
+
+export DISPLAY=:1
+
+# Запускаем Xfce
+startxfce4 &
+
+# Запускаем x11vnc
+x11vnc -display :1 -nopw -forever -listen 0.0.0.0 -xkb &
+
+# Запускаем noVNC на порту 6080
+cd /opt/noVNC-master
+./utils/novnc_proxy --vnc localhost:5900
+EOF
+
+chmod +x /usr/local/bin/start_vnc.sh
+
+echo "Установка завершена!"
+echo "Запуск рабочего стола: start_vnc.sh"
+echo "Открыть браузер на телефоне/ПК и перейти на http://localhost:6080"
